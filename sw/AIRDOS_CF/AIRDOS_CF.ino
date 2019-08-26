@@ -28,6 +28,11 @@ LED
 ---
 LED_red  23  PC7         // LED for Dasa
 
+Time Synchronisation
+--------------------
+SYNC0   18  PC2
+SYNC1   19  PC3
+
 
                      Mighty 1284p    
                       +---\/---+
@@ -67,6 +72,7 @@ boolean SDClass::begin(uint32_t clock, uint8_t csPin) {
 #include "wiring_private.h"
 #include <Wire.h>           
 #include "src/RTCx/RTCx.h"  // Modified version icluded
+#include <Adafruit_MPL3115A2.h>
 
 #define LED_red   23   // PC7
 #define RESET     0    // PB0
@@ -79,10 +85,13 @@ boolean SDClass::begin(uint32_t clock, uint8_t csPin) {
 #define MISO      6    // PB6
 #define SCK       7    // PB7
 #define INT       20   // PC4
+#define SYNC0     18   // PC2
+#define SYNC1     19   // PC3
 
-#define CHANNELS 512   // number of channels in buffer for histogram, including negative numbers
-#define GPSerror 70000 // number of cycles for waitig for GPS in case of GPS error 
-#define GPSdelay 50    // number of measurements between obtaining GPS position
+
+#define CHANNELS 512    // number of channels in buffer for histogram, including negative numbers
+#define GPSerror 700000 // number of cycles for waitig for GPS in case of GPS error 
+#define GPSdelay 5      // number of measurements between obtaining GPS position
 #define TRESHOLD 3*GPSdelay  // ionising radiation flux treshold for obtaining GPS position
 
 uint16_t count = 0;
@@ -91,6 +100,7 @@ uint16_t offset, base_offset;
 uint8_t lo, hi;
 uint16_t u_sensor, maximum;
 struct RTCx::tm tm;
+Adafruit_MPL3115A2 sensor = Adafruit_MPL3115A2();
 
 // Read Analog Differential without gain (read datashet of ATMega1280 and ATMega2560 for refference)
 // Use analogReadDiff(NUM)
@@ -116,6 +126,24 @@ uint8_t analog_reference = INTERNAL2V56; // DEFAULT, INTERNAL, INTERNAL1V1, INTE
 
 void setup()
 {
+  //pinMode(SDpower1, OUTPUT);  // SDcard interface
+  //pinMode(SDpower2, OUTPUT);     
+  //pinMode(SDpower3, OUTPUT);     
+  //pinMode(SS, OUTPUT);     
+  //pinMode(MOSI, INPUT);     
+  //pinMode(MISO, INPUT);     
+  //pinMode(SCK, OUTPUT);  
+  //pinMode(RESET, OUTPUT);   // reset signal for peak detetor
+
+  DDRB = 0b10011110;   // SDcard Power OFF
+  PORTB = 0b00000001;  
+  DDRA = 0b11111100;
+  PORTA = 0b00000000;  // Initiating ports
+  DDRC = 0b11101100;
+  PORTC = 0b00000000;  
+  DDRD = 0b11111100;
+  PORTD = 0b00000000;  
+
   Wire.setClock(100000);
 
   // Open serial communications
@@ -133,32 +161,10 @@ void setup()
   cbi(ADCSRA, 1);        
   cbi(ADCSRA, 0);        
 
-  pinMode(RESET, OUTPUT);   // reset for peak detetor
-
-  //pinMode(SDpower1, OUTPUT);  // SDcard interface
-  //pinMode(SDpower2, OUTPUT);     
-  //pinMode(SDpower3, OUTPUT);     
-  //pinMode(SS, OUTPUT);     
-  //pinMode(MOSI, INPUT);     
-  //pinMode(MISO, INPUT);     
-  //pinMode(SCK, OUTPUT);  
-
-  DDRB = 0b10011110;
-  PORTB = 0b00000000;  // SDcard Power OFF
-
-  DDRA = 0b11111100;
-  PORTA = 0b00000000;  // SDcard Power OFF
-  DDRC = 0b11101100;
-  PORTC = 0b00000000;  // SDcard Power OFF
-  DDRD = 0b11111100;
-  PORTD = 0b00000000;  // SDcard Power OFF
-
   pinMode(LED_red, OUTPUT);
   digitalWrite(LED_red, LOW);  
   digitalWrite(RESET, LOW);  
   
-  //!!! Wire.setClock(100000);
-
   for(int i=0; i<5; i++)  
   {
     delay(50);
@@ -253,11 +259,32 @@ void setup()
   }
   base_offset = u_sensor;
 
-  // Initiates RTC
-  rtc.autoprobe();
+  // Initiation of RTC
+  rtc.autoprobe();  
   rtc.resetClock();
-}
+  
+  // Initiation of Temperature and Pressure sensor
+  sensor.begin();   
 
+  // Initiation of GPS
+  {
+    // Switch off Galileo and GLONASS; UBX-CFG-GNSS (6)+4+8*7+(2)=68 configuration bytes
+    const char cmd[68]={0xB5, 0x62, 0x06, 0x3E, 0x3C, 0x00, 0x00, 0x20, 0x20, 0x07, 0x00, 0x08, 0x10, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x01, 0x03, 0x00, 0x01, 0x00, 0x01, 0x01, 0x02, 0x04, 0x08, 0x00, 0x00, 0x00, 0x01, 0x01, 0x03, 0x08, 0x10, 0x00, 0x00, 0x00, 0x01, 0x01, 0x04, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x03, 0x05, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x05, 0x06, 0x08, 0x0E, 0x00, 0x00, 0x00, 0x01, 0x01, 0x53, 0x1F};
+    for (int n=0;n<(68);n++) Serial1.write(cmd[n]); 
+  }          
+  {
+    // airborne <2g; UBX-CFG-NAV5 (6)+36+(2)=44 configuration bytes
+    const char cmd[44]={0xB5, 0x62 ,0x06 ,0x24 ,0x24 ,0x00 ,0xFF ,0xFF ,0x07 ,0x03 ,0x00 ,0x00 ,0x00 ,0x00 ,0x10 ,0x27 , 0x00 ,0x00 ,0x05 ,0x00 ,0xFA ,0x00 ,0xFA ,0x00 ,0x64 ,0x00 ,0x5E ,0x01 ,0x00 ,0x3C ,0x00 ,0x00 , 0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x85 ,0x2A};
+    for (int n=0;n<(44);n++) Serial1.write(cmd[n]); 
+  }
+  {
+    // switch to UTC time; UBX-CFG-RATE (6)+6+(2)=14 configuration bytes
+    const char cmd[14]={0xB5 ,0x62 ,0x06 ,0x08 ,0x06 ,0x00 ,0xE8 ,0x03 ,0x01 ,0x00 ,0x00 ,0x00 ,0x00 ,0x37};
+    for (int n=0;n<(14);n++) Serial1.write(cmd[n]); 
+  }
+
+  randomSeed(0); // Initiation of random numbers for time synchronisation
+}
 
 void loop()
 {
@@ -322,7 +349,7 @@ void loop()
     sbi(ADCSRA, ADIF);                  // reset interrupt flag from ADC
     
     // dosimeter integration
-    for (uint32_t i=0; i<300000; i++)    // cca 10 s
+    for (uint32_t i=0; i<65535*9; i++)    // cca 10 s
     {
       while (bit_is_clear(ADCSRA, ADIF)); // wait for end of conversion 
       delayMicroseconds(1);            // 2 us wait for 1.5 cycle of 1 MHz ADC clock for sample/hold for next conversion
@@ -374,8 +401,16 @@ void loop()
     
       dataString += String(t-946684800); 
       dataString += ",";
+
+      float pressure = sensor.getPressure();
+      dataString += String(pressure); 
+      dataString += ",";
   
-      uint16_t noise = base_offset+4; // first channel for flux calculation
+      float temperature = sensor.getTemperature();
+      dataString += String(temperature); 
+      dataString += ",";
+  
+      uint16_t noise = base_offset+14; // first channel for flux calculation
       #define RANGE 252
       
       for(int n=base_offset; n<(base_offset+RANGE); n++)  
@@ -449,66 +484,27 @@ void loop()
   }
   
   // GPS **********************
-  if (flux_long>TRESHOLD)
+//  if (flux_long>TRESHOLD)
 //  if (false)
   {
       // make a string for assembling the data to log:
       String dataString = "";
 
-#define MSG_NO 10    // number of logged NMEA messages
+#define MSG_NO 12    // number of logged NMEA messages
 
     digitalWrite(GPSpower, HIGH); // GPS Power ON
     delay(100);
-    {
-      // Switch off Galileo and GLONASS; UBX-CFG-GNSS (6)+4+8*7+(2)=68 configuration bytes
-      const char cmd[68]={0xB5, 0x62, 0x06, 0x3E, 0x3C, 0x00, 0x00, 0x20, 0x20, 0x07, 0x00, 0x08, 0x10, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x01, 0x03, 0x00, 0x01, 0x00, 0x01, 0x01, 0x02, 0x04, 0x08, 0x00, 0x00, 0x00, 0x01, 0x01, 0x03, 0x08, 0x10, 0x00, 0x00, 0x00, 0x01, 0x01, 0x04, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x03, 0x05, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x05, 0x06, 0x08, 0x0E, 0x00, 0x00, 0x00, 0x01, 0x01, 0x53, 0x1F};
-      for (int n=0;n<(68);n++) Serial1.write(cmd[n]); 
-    }          
-    {
-      // airborne <2g; UBX-CFG-NAV5 (6)+36+(2)=44 configuration bytes
-      const char cmd[44]={0xB5, 0x62 ,0x06 ,0x24 ,0x24 ,0x00 ,0xFF ,0xFF ,0x07 ,0x03 ,0x00 ,0x00 ,0x00 ,0x00 ,0x10 ,0x27 , 0x00 ,0x00 ,0x05 ,0x00 ,0xFA ,0x00 ,0xFA ,0x00 ,0x64 ,0x00 ,0x5E ,0x01 ,0x00 ,0x3C ,0x00 ,0x00 , 0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x00 ,0x85 ,0x2A};
-      for (int n=0;n<(44);n++) Serial1.write(cmd[n]); 
-    }
-    {
-      // switch to UTC time; UBX-CFG-RATE (6)+6+(2)=14 configuration bytes
-      const char cmd[14]={0xB5 ,0x62 ,0x06 ,0x08 ,0x06 ,0x00 ,0xE8 ,0x03 ,0x01 ,0x00 ,0x00 ,0x00 ,0x00 ,0x37};
-      for (int n=0;n<(14);n++) Serial1.write(cmd[n]); 
-    }
     // flush serial buffer
     while (Serial1.available()) Serial1.read();
 
-    boolean flag = false;
     char incomingByte; 
     int messages = 0;
     uint32_t nomessages = 0;
-
-    while(true)
-    {
-      if (Serial1.available()) 
-      {
-        // read the incoming byte:
-        incomingByte = Serial1.read();
-        nomessages = 0;
-        
-        if (incomingByte == '$') {messages++;}; // Prevent endless waiting
-        if (messages > 300) break; // more than 26 s
-
-        if (flag && (incomingByte == '*')) break;
-        flag = false;
-
-        if (incomingByte == 'A') flag = true;   // Waiting for FIX
-      }
-      else
-      {
-        nomessages++;  
-        if (nomessages > GPSerror) break; // preventing of forever waiting
-      }
-    }
     
     // make a string for assembling the NMEA to log:
     dataString = "";
 
-    flag = false;
+    boolean flag = false;
     messages = 0;
     nomessages = 0;
     while(true)
@@ -524,10 +520,14 @@ void loop()
         {
           rtc.readClock(tm);
           RTCx::time_t t = RTCx::mktime(&tm);
-        
+          int8_t rnd = random(256);
+          
           dataString += "$TIME,";
           dataString += String(t-946684800);  // RTC Time of the last GPS NMEA Message
-          
+          dataString += ",";
+          digitalWrite(SYNC0,bitRead(rnd,0));    // Output Time to synchronisation bits
+          digitalWrite(SYNC1,bitRead(rnd,1));
+          dataString += String(rnd & 3);
           break;
         }
         
@@ -563,7 +563,7 @@ void loop()
         if (dataFile) 
         {
           digitalWrite(LED_red, HIGH);  // Blink for Dasa
-          dataFile.println(dataString);  // write to SDcard (800 ms)     
+          dataFile.println(dataString); // write to SDcard (800 ms)     
           digitalWrite(LED_red, LOW);          
           dataFile.close();
         }  
