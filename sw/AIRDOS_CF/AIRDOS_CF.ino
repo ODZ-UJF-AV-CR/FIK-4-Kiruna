@@ -73,6 +73,7 @@ boolean SDClass::begin(uint32_t clock, uint8_t csPin) {
 #include <Wire.h>           
 #include "src/RTCx/RTCx.h"  // Modified version icluded
 #include <Adafruit_MPL3115A2.h>
+#include <avr/wdt.h>
 
 #define LED_red   23   // PC7
 #define RESET     0    // PB0
@@ -143,6 +144,9 @@ void setup()
   PORTC = 0b00000000;  
   DDRD = 0b11111100;
   PORTD = 0b00000000;  
+
+  //watchdog enable
+  wdt_enable(WDTO_8S);
 
   Wire.setClock(100000);
 
@@ -263,9 +267,6 @@ void setup()
   rtc.autoprobe();  
   rtc.resetClock();
   
-  // Initiation of Temperature and Pressure sensor
-  sensor.begin();   
-
   // Initiation of GPS
   {
     // Switch off Galileo and GLONASS; UBX-CFG-GNSS (6)+4+8*7+(2)=68 configuration bytes
@@ -284,6 +285,8 @@ void setup()
   }
 
   randomSeed(0); // Initiation of random numbers for time synchronisation
+
+  wdt_reset(); //Reset WDT
 }
 
 void loop()
@@ -351,6 +354,8 @@ void loop()
     // dosimeter integration
     for (uint32_t i=0; i<65535*9; i++)    // cca 10 s
     {
+      wdt_reset(); //Reset WDT
+
       while (bit_is_clear(ADCSRA, ADIF)); // wait for end of conversion 
       delayMicroseconds(1);            // 2 us wait for 1.5 cycle of 1 MHz ADC clock for sample/hold for next conversion
       
@@ -402,14 +407,26 @@ void loop()
       dataString += String(t-946684800); 
       dataString += ",";
 
-      float pressure = sensor.getPressure();
-      dataString += String(pressure); 
+      int8_t rnd = random(256);     
+      digitalWrite(SYNC0,bitRead(rnd,0));    // Output Time to synchronisation bits
+      digitalWrite(SYNC1,bitRead(rnd,1));
+      dataString += String(rnd & 3);
       dataString += ",";
-  
-      float temperature = sensor.getTemperature();
-      dataString += String(temperature); 
-      dataString += ",";
-  
+
+      if (! sensor.begin()) 
+      {
+        dataString += "0,0,";
+      }
+      else
+      {
+        float pressure = sensor.getPressure();
+        dataString += String(pressure); 
+        dataString += ",";
+    
+        float temperature = sensor.getTemperature();
+        dataString += String(temperature); 
+        dataString += ",";
+      }  
       uint16_t noise = base_offset+14; // first channel for flux calculation
       #define RANGE 252
       
@@ -520,14 +537,9 @@ void loop()
         {
           rtc.readClock(tm);
           RTCx::time_t t = RTCx::mktime(&tm);
-          int8_t rnd = random(256);
           
           dataString += "$TIME,";
           dataString += String(t-946684800);  // RTC Time of the last GPS NMEA Message
-          dataString += ",";
-          digitalWrite(SYNC0,bitRead(rnd,0));    // Output Time to synchronisation bits
-          digitalWrite(SYNC1,bitRead(rnd,1));
-          dataString += String(rnd & 3);
           break;
         }
         
