@@ -1,5 +1,5 @@
 #define DEBUG // Please comment it if you are not debugging
-String githash = "d2d1e0d";
+String githash = "1f274d5";
 String FWversion = "CF";
 
 /*
@@ -415,7 +415,7 @@ void loop()
 
       if (! sensor.begin()) 
       {
-        dataString += "0,0,";
+        dataString += "NaN,NaN,";
       }
       else
       {

@@ -1,5 +1,5 @@
 #define DEBUG // Please comment it if you are not debugging
-String githash = "d2d1e0d";
+String githash = "1f274d5";
 String FWversion = "GM";
 
 /*
@@ -297,6 +297,7 @@ void loop()
   }
   
   // GPS **********************
+//  if (flux_long>TRESHOLD)
 //  if (false)
   {
       // make a string for assembling the data to log:
@@ -304,42 +305,19 @@ void loop()
 
 #define MSG_NO 12    // number of logged NMEA messages
 
+    digitalWrite(GPSpower, HIGH); // GPS Power ON
+    delay(100);
     // flush serial buffer
     while (Serial1.available()) Serial1.read();
 
-    boolean flag = false;
     char incomingByte; 
     int messages = 0;
     uint32_t nomessages = 0;
-
-    while(true)
-    {
-      if (Serial1.available()) 
-      {
-        // read the incoming byte:
-        incomingByte = Serial1.read();
-        nomessages = 0;
-        
-        if (incomingByte == '$') {messages++;}; // Prevent endless waiting
-        if (messages > 300) break; // more than 26 s
-
-        //if (flag && (incomingByte == '*')) break;
-        if (incomingByte == '*') break;
-        //flag = false;
-
-        //if (incomingByte == 'A') flag = true;   // Waiting for FIX
-      }
-      else
-      {
-        nomessages++;  
-        if (nomessages > GPSerror) break; // preventing of forever waiting
-      }
-    }
     
     // make a string for assembling the NMEA to log:
     dataString = "";
 
-    flag = false;
+    boolean flag = false;
     messages = 0;
     nomessages = 0;
     while(true)
@@ -355,10 +333,9 @@ void loop()
         {
           rtc.readClock(tm);
           RTCx::time_t t = RTCx::mktime(&tm);
-        
+          
           dataString += "$TIME,";
           dataString += String(t-946684800);  // RTC Time of the last GPS NMEA Message
-          
           break;
         }
         
@@ -371,6 +348,7 @@ void loop()
         if (nomessages > GPSerror) break; // preventing of forever waiting
       }
     }
+    digitalWrite(GPSpower, LOW); // GPS Power OFF
 
     {
         DDRB = 0b10111110;
@@ -393,7 +371,7 @@ void loop()
         if (dataFile) 
         {
           digitalWrite(LED_red, HIGH);  // Blink for Dasa
-          dataFile.println(dataString);  // write to SDcard (800 ms)     
+          dataFile.println(dataString); // write to SDcard (800 ms)     
           digitalWrite(LED_red, LOW);          
           dataFile.close();
         }  
