@@ -1,5 +1,5 @@
 #define DEBUG // Please comment it if you are not debugging
-String githash = "1f274d5";
+String githash = "ac23b3e";
 String FWversion = "CF";
 
 /*
@@ -261,7 +261,8 @@ void setup()
   } else {
     u_sensor -= (CHANNELS / 2);
   }
-  base_offset = u_sensor;
+  //base_offset = u_sensor;
+  base_offset = 256;
 
   // Initiation of RTC
   rtc.autoprobe();  
@@ -321,9 +322,10 @@ void loop()
     ADCSRB = 0;               // Switching ADC to Free Running mode
     sbi(ADCSRA, ADATE);       // ADC autotrigger enable (mandatory for free running mode)
     sbi(ADCSRA, ADSC);        // ADC start the first conversions
-    sbi(ADCSRA, 2);           // 0x100 = clock divided by 16, 1 MHz, 13 us for 13 cycles of one AD conversion, 2 us fo 1.5 cycle for sample-hold
-    cbi(ADCSRA, 1);        
+    sbi(ADCSRA, 2);           // 0x110 = clock divided by 64, 250 kHz, 52 us for 13 cycles of one AD conversion, cca 8 us fo 1.5 cycle for sample-hold
+    sbi(ADCSRA, 1);        
     cbi(ADCSRA, 0);        
+    //sbi(ADCSRA, 0);        
     // combine the two bytes
     u_sensor = (hi << 7) | (lo >> 1);
     // manage negative values
@@ -352,17 +354,15 @@ void loop()
     sbi(ADCSRA, ADIF);                  // reset interrupt flag from ADC
     
     // dosimeter integration
-    for (uint32_t i=0; i<65535*9; i++)    // cca 10 s
+    for (uint32_t i=0; i<65535*2; i++)    // cca 10 s
     {
       wdt_reset(); //Reset WDT
 
       while (bit_is_clear(ADCSRA, ADIF)); // wait for end of conversion 
-      delayMicroseconds(1);            // 2 us wait for 1.5 cycle of 1 MHz ADC clock for sample/hold for next conversion
-      
+      delayMicroseconds(8); // wait for 1.5 cycle of ADC clock for sample/hold for next conversion
       DDRB = 0b10011111;                  // Reset peak detector
       delayMicroseconds(2);              
       DDRB = 0b10011110;
-      sbi(ADCSRA, ADIF);                  // reset interrupt flag from ADC
   
       // we have to read ADCL first; doing so locks both ADCL
       // and ADCH until ADCH is read.  reading ADCL second would
@@ -370,23 +370,14 @@ void loop()
       // as ADCL and ADCH would be locked when it completed.
       lo = ADCL;
       hi = ADCH;
+      sbi(ADCSRA, ADIF);                  // reset interrupt flag from ADC
   
       // combine the two bytes
       u_sensor = (hi << 7) | (lo >> 1);
-  
       // manage negative values
       if (u_sensor <= (CHANNELS/2)-1 ) {u_sensor += (CHANNELS/2);} else {u_sensor -= (CHANNELS/2);}
-                
-      if (u_sensor > maximum) // filter double detection for pulses between two samples
-      {
-        maximum = u_sensor;
-        suppress++;
-      }
-      else
-      {
-        buffer[maximum]++;
-        maximum = 0;
-      }
+      
+      buffer[u_sensor]++;
     }  
     
     // Data out
@@ -430,14 +421,6 @@ void loop()
       uint16_t noise = base_offset+14; // first channel for flux calculation
       #define RANGE 252
       
-      for(int n=base_offset; n<(base_offset+RANGE); n++)  
-      {
-        dataString += String(buffer[n]); 
-        //dataString += "\t";
-        dataString += ",";
-        //if (n==NOISE) dataString += "*,";
-      }
-      
       for(int n=noise; n<(base_offset+RANGE); n++)  
       {
         flux += buffer[n]; 
@@ -448,7 +431,15 @@ void loop()
       dataString += String(flux);
       dataString += ",";
       dataString += String(offset);
-  
+
+      for(int n=base_offset; n<(base_offset+RANGE); n++)  
+      {
+        dataString += ",";
+        dataString += String(buffer[n]); 
+        //dataString += "\t";
+        //if (n==NOISE) dataString += "*,";
+      }
+       
       count++;
 
       flux_long = flux_long + flux;

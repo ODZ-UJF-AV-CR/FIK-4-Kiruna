@@ -1,5 +1,5 @@
 //#define DEBUG // Please comment it if you are not debugging
-String githash = "1f274d5";
+String githash = "ac23b3e";
 String FWversion = "FF";
 
 /*
@@ -234,7 +234,8 @@ void setup()
   } else {
     u_sensor -= (CHANNELS / 2);
   }
-  base_offset = u_sensor;
+  //base_offset = u_sensor;
+  base_offset = 256;
 
   // Initiates RTC
   rtc.autoprobe();
@@ -373,15 +374,6 @@ void loop()
     uint16_t noise = base_offset+3;
     uint32_t dose=0;
     #define RANGE 252
-    
-    for(int n=base_offset; n<(base_offset+RANGE); n++)  
-    {
-      dataString += String(buffer[n]); 
-      //dataString += "\t";
-      dataString += ",";
-      //if (n==NOISE) dataString += "*,";
-    }
-    
     for(int n=noise; n<(base_offset+RANGE); n++)  
     {
       dose += buffer[n]; 
@@ -392,7 +384,15 @@ void loop()
     dataString += String(dose);
     dataString += ",";
     dataString += String(offset);
-
+    
+    for(int n=base_offset; n<(base_offset+RANGE); n++)  
+    {
+      dataString += ",";
+      dataString += String(buffer[n]); 
+      //dataString += "\t";
+      //if (n==NOISE) dataString += "*,";
+    }
+    
     count++;
 
     {
