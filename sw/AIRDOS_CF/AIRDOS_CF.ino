@@ -366,7 +366,7 @@ void loop()
     sbi(ADCSRA, ADIF);                  // reset interrupt flag from ADC
     
     // dosimeter integration
-    for (uint32_t i=0; i<65535*2; i++)    // cca 5 s
+    for (uint32_t i=0; i<65535*2; i++)    // cca 8 s
     {
       wdt_reset(); //Reset WDT
 

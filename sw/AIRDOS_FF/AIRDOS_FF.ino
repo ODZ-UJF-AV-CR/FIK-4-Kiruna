@@ -1,5 +1,5 @@
 //#define DEBUG // Please comment it if you are not debugging
-String githash = "ac23b3e";
+String githash = "96051b4";
 String FWversion = "FF";
 
 /*
@@ -173,7 +173,9 @@ void setup()
   {
     DDRB = 0b10111110;
     PORTB = 0b00001111;  // SDcard Power ON
-  
+
+    delay(2300); // Wait for BOD reset if batteries are exhausted
+    
     // make sure that the default chip select pin is set to output
     // see if the card is present and can be initialized:
     if (!SD.begin(SS)) 
