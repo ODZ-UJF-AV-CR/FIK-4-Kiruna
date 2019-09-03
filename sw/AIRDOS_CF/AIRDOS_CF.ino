@@ -1,5 +1,5 @@
 #define DEBUG // Please comment it if you are not debugging
-String githash = "ac23b3e";
+String githash = "0766a8b";
 String FWversion = "CF";
 
 /*
@@ -181,24 +181,33 @@ void setup()
 
   // make a string for device identification output
   String dataString = "$AIRDOS," + FWversion + "," + githash + ","; // FW version and Git hash
-  
-  Wire.beginTransmission(0x58);                   // request SN from EEPROM
-  Wire.write((int)0x08); // MSB
-  Wire.write((int)0x00); // LSB
-  Wire.endTransmission();
-  Wire.requestFrom((uint8_t)0x58, (uint8_t)16);    
-  for (int8_t reg=0; reg<16; reg++)
-  { 
-    uint8_t serialbyte = Wire.read(); // receive a byte
-    if (serialbyte<0x10) dataString += "0";
-    dataString += String(serialbyte,HEX);    
-    serialhash += serialbyte;
-  }
 
+  if (digitalRead(17)) // Protection against sensor mallfunction 
+  {
+    Wire.beginTransmission(0x58);                   // request SN from EEPROM
+    Wire.write((int)0x08); // MSB
+    Wire.write((int)0x00); // LSB
+    Wire.endTransmission();
+    Wire.requestFrom((uint8_t)0x58, (uint8_t)16);    
+    for (int8_t reg=0; reg<16; reg++)
+    { 
+      uint8_t serialbyte = Wire.read(); // receive a byte
+      if (serialbyte<0x10) dataString += "0";
+      dataString += String(serialbyte,HEX);    
+      serialhash += serialbyte;
+    }
+  }
+  else
+  {
+    dataString += "NaN";    
+  }
+    
   {
     DDRB = 0b10111110;
     PORTB = 0b00001111;  // SDcard Power ON
-  
+
+    delay(1000);
+    
     // make sure that the default chip select pin is set to output
     // see if the card is present and can be initialized:
     if (!SD.begin(SS)) 
@@ -264,9 +273,12 @@ void setup()
   //base_offset = u_sensor;
   base_offset = 256;
 
-  // Initiation of RTC
-  rtc.autoprobe();  
-  rtc.resetClock();
+  if (digitalRead(17)) // Protection against sensor mallfunction 
+  {
+    // Initiation of RTC
+    rtc.autoprobe();  
+    rtc.resetClock();
+  }
   
   // Initiation of GPS
   {
@@ -354,7 +366,7 @@ void loop()
     sbi(ADCSRA, ADIF);                  // reset interrupt flag from ADC
     
     // dosimeter integration
-    for (uint32_t i=0; i<65535*2; i++)    // cca 10 s
+    for (uint32_t i=0; i<65535*2; i++)    // cca 5 s
     {
       wdt_reset(); //Reset WDT
 
@@ -383,41 +395,49 @@ void loop()
     // Data out
     flux = 0;
     {
-      rtc.readClock(tm);
-      RTCx::time_t t = RTCx::mktime(&tm);
-
       // make a string for assembling the data to log:
       String dataString = "";
-  
-      // make a string for assembling the data to log:
-      dataString += "$CANDY,";
-  
-      dataString += String(count); 
-      dataString += ",";
-    
-      dataString += String(t-946684800); 
-      dataString += ",";
-
-      int8_t rnd = random(256);     
-      digitalWrite(SYNC0,bitRead(rnd,0));    // Output Time to synchronisation bits
-      digitalWrite(SYNC1,bitRead(rnd,1));
-      dataString += String(rnd & 3);
-      dataString += ",";
-
-      if (! sensor.begin()) 
+      
+      if (digitalRead(17)) // Protection against sensor mallfunction 
       {
-        dataString += "NaN,NaN,";
+        rtc.readClock(tm);
+        RTCx::time_t t = RTCx::mktime(&tm);
+      
+        // make a string for assembling the data to log:
+        dataString += "$CANDY,";
+    
+        dataString += String(count); 
+        dataString += ",";
+      
+        dataString += String(t-946684800); 
+        dataString += ",";
+  
+        int8_t rnd = random(256);     
+        digitalWrite(SYNC0,bitRead(rnd,0));    // Output Time to synchronisation bits
+        digitalWrite(SYNC1,bitRead(rnd,1));
+        dataString += String(rnd & 3);
+        dataString += ",";
+
+        if (! sensor.begin()) 
+        {
+          dataString += "NaN,NaN,";
+        }
+        else
+        {
+          float pressure = sensor.getPressure();
+          dataString += String(pressure); 
+          dataString += ",";
+      
+          float temperature = sensor.getTemperature();
+          dataString += String(temperature); 
+          dataString += ",";
+        }  
       }
       else
       {
-        float pressure = sensor.getPressure();
-        dataString += String(pressure); 
-        dataString += ",";
-    
-        float temperature = sensor.getTemperature();
-        dataString += String(temperature); 
-        dataString += ",";
-      }  
+        dataString += "Error,";
+      }
+      
       uint16_t noise = base_offset+14; // first channel for flux calculation
       #define RANGE 252
       
@@ -490,7 +510,9 @@ void loop()
       digitalWrite(LED_red, LOW);                
     }    
   }
-  
+
+  wdt_reset(); //Reset WDT
+
   // GPS **********************
 //  if (flux_long>TRESHOLD)
 //  if (false)
@@ -581,6 +603,7 @@ void loop()
     }  
 #ifdef DEBUG
     Serial.println(dataString);  // print to terminal (additional 700 ms)
+    wdt_reset(); //Reset WDT
 #endif
   }
 }
